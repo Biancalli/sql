@@ -174,7 +174,16 @@ How many customers are there (y).
 Before your final group by you should have the product of those two queries (x*y).  */
 --QUERY 8
 
-
+SELECT v.vendor_name, p.product_name,
+  ROUND(SUM(5 * vi.original_price), 2) AS total_revenue
+FROM (
+  SELECT DISTINCT vendor_id, product_id, original_price
+  FROM vendor_inventory
+) AS vi
+CROSS JOIN customer AS c
+INNER JOIN vendor  AS v ON vi.vendor_id  = v.vendor_id
+INNER JOIN product AS p ON vi.product_id = p.product_id
+GROUP BY v.vendor_name, p.product_name;
 
 
 --END QUERY
@@ -187,7 +196,11 @@ It should use all of the columns from the product table, as well as a new column
 Name the timestamp column `snapshot_timestamp`. */
 --QUERY 9
 
-
+DROP TABLE IF EXISTS product_units;
+CREATE TABLE product_units AS
+SELECT *, CURRENT_TIMESTAMP AS snapshot_timestamp
+FROM product
+WHERE product_qty_type = 'unit';
 
 
 --END QUERY
@@ -196,7 +209,11 @@ Name the timestamp column `snapshot_timestamp`. */
 /*2. Using `INSERT`, add a new row to the product_units table (with an updated timestamp). 
 This can be any product you desire (e.g. add another record for Apple Pie). */
 --QUERY 10
-
+INSERT INTO product_units
+  (product_id, product_name, product_size, product_category_id, product_qty_type, snapshot_timestamp)
+SELECT product_id, product_name, product_size, product_category_id, product_qty_type, CURRENT_TIMESTAMP
+FROM product
+WHERE product_name = 'Apple Pie';
 
 
 
@@ -209,7 +226,13 @@ This can be any product you desire (e.g. add another record for Apple Pie). */
 HINT: If you don't specify a WHERE clause, you are going to have a bad time.*/
 --QUERY 11
 
-
+DELETE FROM product_units
+WHERE product_name = 'Apple Pie'
+  AND snapshot_timestamp < (
+    SELECT MAX(snapshot_timestamp)
+    FROM product_units
+    WHERE product_name = 'Apple Pie'
+  );
 
 
 --END QUERY
@@ -233,7 +256,20 @@ Finally, make sure you have a WHERE statement to update the right row,
 When you have all of these components, you can run the update statement. */
 --QUERY 12
 
+ALTER TABLE product_units
+ADD current_quantity INT;
 
+UPDATE product_units
+SET current_quantity = COALESCE((
+  SELECT x.quantity
+  FROM (
+    SELECT product_id, quantity,
+      ROW_NUMBER() OVER (PARTITION BY product_id ORDER BY market_date DESC) AS rn
+    FROM vendor_inventory
+  ) AS x
+  WHERE x.rn = 1
+    AND x.product_id = product_units.product_id
+), 0);
 
 
 --END QUERY
